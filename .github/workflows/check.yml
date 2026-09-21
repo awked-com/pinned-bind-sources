@@ -1,0 +1,29 @@
+name: Check
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test -race ./...
+      - name: Test real bind mounts in an isolated namespace
+        run: |
+          go test -c -o "$RUNNER_TEMP/pinned-bind-sources.test"
+          sudo unshare --mount --propagation private env PINNED_BIND_MOUNT_TESTS=1 "$RUNNER_TEMP/pinned-bind-sources.test"
+      - run: test -z "$(gofmt -l .)"
