@@ -31,9 +31,10 @@ Example `bindings.json`:
 [{"target":"0","path":"/srv/example","create":true,"uid":1000,"gid":1000,"mode":"0750"}]
 ```
 
-Targets are numeric directory names. Paths must be absolute. `create` defaults to
-false; omitted `uid`, `gid`, and `mode` leave existing metadata unchanged. Creating
-a source also creates missing ancestors. Metadata changes apply to the source.
+Targets must be unique numeric directory names. Paths must be absolute. `create`
+defaults to false; omitted `uid`, `gid`, and `mode` leave existing metadata
+unchanged. Creating a source also creates missing ancestors. Metadata changes
+apply to the source.
 
 Use a trusted manifest and private runtime directory. Each `pin` first clears old
 mounts in that directory. A failed pin can leave earlier mounts in place; call

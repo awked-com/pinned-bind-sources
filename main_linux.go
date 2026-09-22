@@ -143,12 +143,12 @@ func pin(b binding, fd int) error {
 	return unix.Mount("", path, "", unix.MS_PRIVATE, "")
 }
 
-func run() error {
-	if len(os.Args) != 4 || (os.Args[1] != "pin" && os.Args[1] != "unpin") {
+func run(args []string) error {
+	if len(args) != 3 || (args[0] != "pin" && args[0] != "unpin") {
 		return errors.New("usage: pinned-bind-sources pin|unpin MANIFEST RUNTIME_DIRECTORY")
 	}
 
-	data, err := os.ReadFile(os.Args[2])
+	data, err := os.ReadFile(args[1])
 	if err != nil {
 		return err
 	}
@@ -158,15 +158,20 @@ func run() error {
 		return err
 	}
 
+	seen := make(map[string]bool, len(bindings))
 	for _, b := range bindings {
 		if !numeric.MatchString(b.Target) {
 			return errors.New("bind staging names must be numeric")
 		}
+		if args[0] == "pin" && seen[b.Target] {
+			return fmt.Errorf("duplicate bind staging name: %s", b.Target)
+		}
+		seen[b.Target] = true
 	}
 
-	fd, err := openDirectory(os.Args[3], false)
+	fd, err := openDirectory(args[2], false)
 	if err != nil {
-		if errors.Is(err, unix.ENOENT) && os.Args[1] == "unpin" {
+		if errors.Is(err, unix.ENOENT) && args[0] == "unpin" {
 			return nil
 		}
 
@@ -187,7 +192,7 @@ func run() error {
 		return err
 	}
 
-	if os.Args[1] == "pin" {
+	if args[0] == "pin" {
 		for _, b := range bindings {
 			if err = pin(b, fd); err != nil {
 				return err
@@ -197,11 +202,11 @@ func run() error {
 		return nil
 	}
 
-	return os.Remove(os.Args[3])
+	return os.Remove(args[2])
 }
 
 func main() {
-	if err := run(); err != nil {
+	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

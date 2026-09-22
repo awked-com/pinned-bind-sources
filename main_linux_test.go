@@ -64,3 +64,27 @@ func TestSourceDescriptorSurvivesPathReplacement(t *testing.T) {
 		t.Fatalf("held source followed path replacement: %q, %v", data, err)
 	}
 }
+
+func TestDuplicateTargets(t *testing.T) {
+	root := t.TempDir()
+	runtime := filepath.Join(root, "runtime")
+	target := filepath.Join(runtime, "0")
+	if err := os.MkdirAll(target, 0700); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(root, "bindings.json")
+	if err := os.WriteFile(manifest, []byte(`[{"target":"0"},{"target":"0"}]`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := run([]string{"pin", manifest, runtime})
+	if err == nil || err.Error() != "duplicate bind staging name: 0" {
+		t.Fatalf("duplicate target: %v", err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("modified runtime directory before rejecting manifest: %v", err)
+	}
+	if err := run([]string{"unpin", manifest, filepath.Join(root, "missing")}); err != nil {
+		t.Fatalf("unpin with a duplicate target and missing runtime: %v", err)
+	}
+}
