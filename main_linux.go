@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"golang.org/x/sys/unix"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 const directoryFlags = unix.O_RDONLY | unix.O_DIRECTORY | unix.O_NOFOLLOW | unix.O_CLOEXEC
@@ -27,18 +28,19 @@ func openDirectory(path string, create bool) (int, error) {
 		return -1, errors.New("expected an absolute directory path")
 	}
 
-	for _, p := range strings.Split(path, "/") {
+	components := strings.Split(path, "/")
+	for _, p := range components {
 		if p == "." || p == ".." {
 			return -1, errors.New("dot components are forbidden")
 		}
 	}
 
-	fd, e := unix.Open("/", directoryFlags, 0)
-	if e != nil {
-		return -1, e
+	fd, err := unix.Open("/", directoryFlags, 0)
+	if err != nil {
+		return -1, err
 	}
 
-	for _, p := range strings.Split(path, "/") {
+	for _, p := range components {
 		if p == "" {
 			continue
 		}
@@ -63,9 +65,9 @@ func openDirectory(path string, create bool) (int, error) {
 }
 
 func unpin(fd int) error {
-	entries, e := os.ReadDir(fmt.Sprintf("/proc/self/fd/%d", fd))
-	if e != nil {
-		return e
+	entries, err := os.ReadDir(fmt.Sprintf("/proc/self/fd/%d", fd))
+	if err != nil {
+		return err
 	}
 
 	var failures []error
@@ -75,15 +77,15 @@ func unpin(fd int) error {
 			return fmt.Errorf("unexpected bind staging entry: %s", n)
 		}
 
-		e = unix.Unmount(fmt.Sprintf("/proc/self/fd/%d/%s", fd, n), unix.MNT_DETACH)
-		if e != nil && !errors.Is(e, unix.EINVAL) && !errors.Is(e, unix.ENOENT) {
-			failures = append(failures, e)
+		err = unix.Unmount(fmt.Sprintf("/proc/self/fd/%d/%s", fd, n), unix.MNT_DETACH)
+		if err != nil && !errors.Is(err, unix.EINVAL) && !errors.Is(err, unix.ENOENT) {
+			failures = append(failures, err)
 			continue
 		}
 
-		e = unix.Unlinkat(fd, n, unix.AT_REMOVEDIR)
-		if e != nil && !errors.Is(e, unix.ENOENT) {
-			failures = append(failures, e)
+		err = unix.Unlinkat(fd, n, unix.AT_REMOVEDIR)
+		if err != nil && !errors.Is(err, unix.ENOENT) {
+			failures = append(failures, err)
 		}
 	}
 
@@ -91,19 +93,19 @@ func unpin(fd int) error {
 }
 
 func pin(b binding, fd int) error {
-	if e := unix.Mkdirat(fd, b.Target, 0700); e != nil && !errors.Is(e, unix.EEXIST) {
-		return e
+	if err := unix.Mkdirat(fd, b.Target, 0700); err != nil && !errors.Is(err, unix.EEXIST) {
+		return err
 	}
 
-	target, e := unix.Openat(fd, b.Target, directoryFlags, 0)
-	if e != nil {
-		return e
+	target, err := unix.Openat(fd, b.Target, directoryFlags, 0)
+	if err != nil {
+		return err
 	}
 
 	unix.Close(target)
-	source, e := openDirectory(b.Path, b.Create)
-	if e != nil {
-		return e
+	source, err := openDirectory(b.Path, b.Create)
+	if err != nil {
+		return err
 	}
 	defer unix.Close(source)
 
@@ -117,8 +119,8 @@ func pin(b binding, fd int) error {
 	}
 
 	if uid != -1 || gid != -1 {
-		if e = unix.Fchown(source, uid, gid); e != nil {
-			return e
+		if err = unix.Fchown(source, uid, gid); err != nil {
+			return err
 		}
 	}
 
@@ -128,14 +130,14 @@ func pin(b binding, fd int) error {
 			return err
 		}
 
-		if e = unix.Fchmod(source, uint32(mode)); e != nil {
-			return e
+		if err = unix.Fchmod(source, uint32(mode)); err != nil {
+			return err
 		}
 	}
 
 	path := fmt.Sprintf("/proc/self/fd/%d/%s", fd, b.Target)
-	if e = unix.Mount(fmt.Sprintf("/proc/self/fd/%d", source), path, "", unix.MS_BIND, ""); e != nil {
-		return e
+	if err = unix.Mount(fmt.Sprintf("/proc/self/fd/%d", source), path, "", unix.MS_BIND, ""); err != nil {
+		return err
 	}
 
 	return unix.Mount("", path, "", unix.MS_PRIVATE, "")
@@ -146,14 +148,14 @@ func run() error {
 		return errors.New("usage: pinned-bind-sources pin|unpin MANIFEST RUNTIME_DIRECTORY")
 	}
 
-	data, e := os.ReadFile(os.Args[2])
-	if e != nil {
-		return e
+	data, err := os.ReadFile(os.Args[2])
+	if err != nil {
+		return err
 	}
 
 	var bindings []binding
-	if e = json.Unmarshal(data, &bindings); e != nil {
-		return e
+	if err = json.Unmarshal(data, &bindings); err != nil {
+		return err
 	}
 
 	for _, b := range bindings {
@@ -162,33 +164,33 @@ func run() error {
 		}
 	}
 
-	fd, e := openDirectory(os.Args[3], false)
-	if e != nil {
-		if errors.Is(e, unix.ENOENT) && os.Args[1] == "unpin" {
+	fd, err := openDirectory(os.Args[3], false)
+	if err != nil {
+		if errors.Is(err, unix.ENOENT) && os.Args[1] == "unpin" {
 			return nil
 		}
 
-		return e
+		return err
 	}
 	defer unix.Close(fd)
 
 	var st unix.Stat_t
-	if e = unix.Fstat(fd, &st); e != nil {
-		return e
+	if err = unix.Fstat(fd, &st); err != nil {
+		return err
 	}
 
 	if int(st.Uid) != os.Geteuid() || st.Mode&0077 != 0 {
 		return errors.New("bind staging directory must be private and owned by the service user")
 	}
 
-	if e = unpin(fd); e != nil {
-		return e
+	if err = unpin(fd); err != nil {
+		return err
 	}
 
 	if os.Args[1] == "pin" {
 		for _, b := range bindings {
-			if e = pin(b, fd); e != nil {
-				return e
+			if err = pin(b, fd); err != nil {
+				return err
 			}
 		}
 
@@ -199,8 +201,8 @@ func run() error {
 }
 
 func main() {
-	if e := run(); e != nil {
-		fmt.Fprintln(os.Stderr, e)
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
